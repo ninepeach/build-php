@@ -28,7 +28,7 @@ EXT_REDIS_VERSION="5.3.7"
 DIR="$(pwd)"
 BUILD_DIR="$DIR/build"
 BUILD_DEPS_DIR="$BUILD_DIR/deps"
-INSTALL_DIR="/usr/local/php"
+INSTALL_DIR="/usr/local/php72"  # Updated installation directory
 
 # Get number of CPU cores, or limit threads to a reasonable default if needed
 CPU_CORE=$(grep -c ^processor /proc/cpuinfo)
@@ -138,35 +138,111 @@ function build_php {
     cd "$php_dir"
     
     ./configure --prefix="$INSTALL_DIR" \
-        --with-config-file-path="$INSTALL_DIR/etc" \
-        --enable-bcmath --enable-cli --enable-mbstring \
-        --enable-mysqlnd --enable-opcache --enable-zip \
-        --with-fpm-user=www --with-fpm-group=www \
-        --with-zlib="$BUILD_DEPS_DIR" --with-libxml-dir="$BUILD_DEPS_DIR" \
-        --with-openssl="$BUILD_DEPS_DIR" --with-curl="$BUILD_DEPS_DIR" \
-        --with-jpeg-dir="$BUILD_DEPS_DIR" --with-png-dir="$BUILD_DEPS_DIR" \
-        --with-gd --with-freetype-dir="$BUILD_DEPS_DIR" --with-pdo-mysql=mysqlnd \
-        --disable-cgi --disable-phpdbg --without-pear --without-iconv
+        --prefix="$INSTALL_DIR" \
+        --exec-prefix="$INSTALL_DIR" \
+        --with-config-file-path="$INSTALL_DIR/etc/php" \
+        --enable-bcmath \
+        --enable-cli \
+        --enable-ctype \
+        --enable-calendar \
+        --enable-dom \
+        --enable-debug \
+        --enable-exif \
+        --enable-encoding \
+        --enable-embedded-mysqli \
+        --enable-ftp \
+        --enable-fpm \
+        --enable-fileinfo \
+        --enable-hash \
+        --enable-json \
+        --enable-mbstring \
+        --enable-mysqlnd \
+        --enable-phar \
+        --enable-opcache \
+        --enable-sockets \
+        --enable-simplexml \
+        --enable-session \
+        --enable-shared=no \
+        --enable-static=yes \
+        --enable-xml \
+        --enable-zip \
+        --with-fpm-user=www \
+        --with-fpm-group=www \
+        --with-zlib="$BUILD_DEPS_DIR" \
+        --with-libxml-dir="$BUILD_DEPS_DIR" \
+        --with-openssl="$BUILD_DEPS_DIR" \
+        --with-curl="$BUILD_DEPS_DIR" \
+        --with-pcre-dir="$BUILD_DEPS_DIR" \
+        --with-jpeg-dir="$BUILD_DEPS_DIR" \
+        --with-png-dir="$BUILD_DEPS_DIR" \
+        --with-gd \
+        --with-freetype-dir="$BUILD_DEPS_DIR" \
+        --with-pdo-mysql=mysqlnd \
+        --disable-cgi \
+        --disable-phpdbg \
+        --without-pear \
+        --without-iconv
     make -j "$THREADS" && make install
 
     # Handle php.ini
-    cp php.ini-production "$INSTALL_DIR/etc/php.ini"
-    sed -i 's/memory_limit = .*/memory_limit = 512M/' "$INSTALL_DIR/etc/php.ini"
-    sed -i 's/upload_max_filesize = .*/upload_max_filesize = 100M/' "$INSTALL_DIR/etc/php.ini"
-    sed -i 's/post_max_size = .*/post_max_size = 100M/' "$INSTALL_DIR/etc/php.ini"
-    sed -i 's/max_execution_time = .*/max_execution_time = 300/' "$INSTALL_DIR/etc/php.ini"
+    mkdir -p $INSTALL_DIR/etc/php
+    mkdir -p $INSTALL_DIR/etc/php/php-fpm.d
 
-    # Handle php-fpm.conf
-    mv $INSTALL_DIR/etc/php-fpm.conf.default $INSTALL_DIR/etc/php-fpm.conf
-    mv $INSTALL_DIR/etc/php-fpm.d/www.conf.default $INSTALL_DIR/etc/php-fpm.d/www.conf
+    cp php.ini-production "$INSTALL_DIR/etc/php/php.ini"
+    sed -i 's/memory_limit = .*/memory_limit = 512M/' "$INSTALL_DIR/etc/php/php.ini"
+    sed -i 's/upload_max_filesize = .*/upload_max_filesize = 100M/' "$INSTALL_DIR/etc/php/php.ini"
+    sed -i 's/post_max_size = .*/post_max_size = 100M/' "$INSTALL_DIR/etc/php/php.ini"
+
+    # Add OPcache settings
+    cat <<EOF >> "$INSTALL_DIR/etc/php/php.ini"
+
+; OPcache settings
+opcache.interned_strings_buffer=4
+opcache.max_accelerated_files=2000
+opcache.memory_consumption=64
+opcache.revalidate_freq=2
+opcache.fast_shutdown=0
+opcache.enable_cli=0
+EOF
+
+# Handle php-fpm.conf
+if [ -f "$INSTALL_DIR/etc/php/php-fpm.conf.default" ]; then
+    mv "$INSTALL_DIR/etc/php/php-fpm.conf.default" "$INSTALL_DIR/etc/php/php-fpm.conf"
+else
+    # Create a simple php-fpm.conf if it does not exist
+    cat <<EOF > "$INSTALL_DIR/etc/php/php-fpm.conf"
+; php-fpm.conf configuration file
+[global]
+error_log = /usr/local/php72/logs/php-fpm.log
+
+; Pool definitions
+include=/usr/local/php72/etc/php/php-fpm.d/*.conf
+EOF
+
+fi
     
-    # Adjust php-fpm settings
-    sed -i 's/listen = .*/listen = \/var\/run\/php-fpm.sock/' "$INSTALL_DIR/etc/php-fpm.d/www.conf"
-    sed -i 's/user = .*/user = www/' "$INSTALL_DIR/etc/php-fpm.d/www.conf"
-    sed -i 's/group = .*/group = www/' "$INSTALL_DIR/etc/php-fpm.d/www.conf"
-    sed -i 's/pm.max_children = .*/pm.max_children = 50/' "$INSTALL_DIR/etc/php-fpm.d/www.conf"
+# Move and adjust www.conf
+if [ -f "$INSTALL_DIR/etc/php/php-fpm.d/www.conf.default" ]; then
+    mv "$INSTALL_DIR/etc/php/php-fpm.d/www.conf.default" "$INSTALL_DIR/etc/php/php-fpm.d/www.conf"
+else
+    # Create a simple www.conf if it does not exist
+    cat <<EOF > "$INSTALL_DIR/etc/php/php-fpm.d/www.conf"
+; www.conf configuration file
+[www]
+listen = 127.0.0.1:9000 
+listen.owner = www
+listen.group = www
+listen.mode = 0666
+pm = dynamic
+pm.max_children = 25
+pm.start_servers = 5 
+pm.min_spare_servers = 5
+pm.max_spare_servers = 20
+EOF
+
+fi
     
-    echo "build php and configure php.ini/php-fpm done"
+    echo "Build PHP and configure php.ini/php-fpm done"
 }
 
 function build_php_exts {
@@ -181,10 +257,10 @@ function build_php_exts {
     $INSTALL_DIR/bin/phpize
     ./configure --with-php-config="$INSTALL_DIR/bin/php-config" --with-mongodb-zlib="$BUILD_DEPS_DIR" --with-openssl-dir="$BUILD_DEPS_DIR"
     make -j "$THREADS" && make install
-    echo "build php ext mongo done"
+    echo "Build MongoDB extension done"
 
-    cd $BUILD_DIR
     # Build Redis extension
+    cd $BUILD_DIR
     local redis_dir="$BUILD_DIR/phpredis-$EXT_REDIS_VERSION"
     if [ ! -d "$redis_dir" ]; then
         echo "Extracting phpredis-$EXT_REDIS_VERSION.tar.gz"
@@ -194,22 +270,70 @@ function build_php_exts {
     $INSTALL_DIR/bin/phpize
     ./configure --with-php-config="$INSTALL_DIR/bin/php-config"
     make -j "$THREADS" && make install
-    echo "build php ext redis done"
+    echo "Build Redis extension done"
+
+    # Add Redis and MongoDB extensions to php.ini
+    echo "Redis and MongoDB extensions to php.ini"
+    echo "extension=redis.so" >> "$INSTALL_DIR/etc/php/php.ini"
+    echo "extension=mongodb.so" >> "$INSTALL_DIR/etc/php/php.ini"
 }
 
-# Main execution starts here
-
 # Build dependencies
+build_zlib
 build_libjpeg
 build_libpng
 build_freetype
-build_zlib
 build_libxml2
 build_openssl
 build_curl
 
-# Build PHP and extensions
+# Build PHP
 build_php
+
+# Build PHP extensions
 build_php_exts
 
-echo "PHP and dependencies build complete!"
+mkdir -p ${INSTALL_DIR}/logs
+mkdir -p ${INSTALL_DIR}/run
+mkdir -p ${INSTALL_DIR}/service
+cat <<'EOF' > ${INSTALL_DIR}/service/install.sh 
+#!/usr/bin/env bash
+
+# Add NGINX group and user if they do not already exist
+sudo id -g www &>/dev/null || sudo addgroup --system www
+sudo id -u www  &>/dev/null || sudo adduser --disabled-password --system --shell /sbin/nologin --group www
+
+if [ ! -e "/lib/systemd/system/php-fpm.service" ]; then
+sudo cp /usr/local/php72/service/php-fpm.service /lib/systemd/system/php-fpm.service
+sudo systemctl daemon-reload
+sudo systemctl enable php-fpm
+sudo systemctl start php-fpm
+fi
+EOF
+chmod +x ${INSTALL_DIR}/service/install.sh
+
+# Systemd service for PHP-FPM if not exist
+cat <<'EOF' > ${INSTALL_DIR}/service/php-fpm.service
+[Unit]
+Description=The PHP 7.2 FastCGI Process Manager
+After=network.target
+
+[Service]
+Type=simple
+PIDFile=/usr/local/php72/run/php-fpm.pid
+ExecStart=/usr/local/php72/sbin/php-fpm --nodaemonize --fpm-config /usr/local/php72/etc/php/php-fpm.conf
+ExecReload=/bin/kill -USR2 $MAINPID
+User=www
+Group=www
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+chown -R www:www $INSTALL_DIR
+
+# Cleanup
+echo "Cleaning up..."
+rm -rf "$BUILD_DIR"
+
+echo "PHP $PHP_VERSION and extensions installed successfully in $INSTALL_DIR."
